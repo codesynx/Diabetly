@@ -9,10 +9,10 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     port: 8080,
     cors: {
-      origin: "https://4108-185-18-220-30.ngrok-free.app",
+      origin: "https://3c7f-185-18-220-30.ngrok-free.app",
       credentials: true,
     },
-    origin: "https://4108-185-18-220-30.ngrok-free.app ",
+    origin: "https://3c7f-185-18-220-30.ngrok-free.app",
   },
   plugins: [
     react(),

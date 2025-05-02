@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import NavBar from '@/components/NavBar';
 import Footer from '@/components/Footer';
 import ImageUploader from '@/components/ImageUploader';
@@ -7,30 +8,52 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { Card, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Eye, AlertCircle, Info, FileText, BarChart, Activity } from 'lucide-react';
+import { Eye, AlertCircle, Info, FileText, BarChart, Activity, Star } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
-import { processImage } from '../../image-processor';
+import { apiService, AnalysisResult as ApiAnalysisResult } from '@/lib/api-service';
 import { saveAnalysisToHistory } from '@/lib/storage-service';
 import { Progress } from '@/components/ui/progress';
-
-type ResultLevel = 'low' | 'medium' | 'high';
-
-interface AnalysisResultData {
-  riskLevel: ResultLevel;
-  riskScore: number;
-  confidence: number;
-  findings: string[];
-  recommendations: Record<string, string>;
-  nextCheckupRecommendation: string;
-}
+import { useAuth } from '@/lib/auth-context';
+import { hasCredits, useCredit } from '@/lib/user-credits-service';
 
 const Upload = () => {
   const [file, setFile] = useState<File | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
-  const [result, setResult] = useState<AnalysisResultData | null>(null);
+  const [result, setResult] = useState<ApiAnalysisResult | null>(null);
   const [progress, setProgress] = useState(0);
   const [imageData, setImageData] = useState<string | null>(null);
+  const [apiHealth, setApiHealth] = useState<boolean>(true);
   const { toast } = useToast();
+  const { user, userSubscription, refreshSubscription } = useAuth();
+  const navigate = useNavigate();
+
+  // Check API health on component mount
+  useEffect(() => {
+    checkApiHealth();
+  }, []);
+
+  // Function to check API health
+  const checkApiHealth = async () => {
+    try {
+      const healthData = await apiService.checkHealth();
+      setApiHealth(healthData.status === 'healthy');
+      
+      if (healthData.status !== 'healthy') {
+        toast({
+          title: "Предупреждение",
+          description: "Сервис анализа в настоящее время недоступен. Пожалуйста, повторите попытку позже.",
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      setApiHealth(false);
+      toast({
+        title: "Ошибка соединения",
+        description: "Не удалось подключиться к сервису анализа. Проверьте ваше интернет-соединение.",
+        variant: "destructive"
+      });
+    }
+  };
 
   const handleImageUpload = (uploadedFile: File) => {
     setFile(uploadedFile);
@@ -52,6 +75,45 @@ const Upload = () => {
         description: "Пожалуйста, сначала загрузите изображение",
         variant: "destructive"
       });
+      console.log("Analysis not started: No file uploaded");
+      return;
+    }
+
+    if (!apiHealth) {
+      toast({
+        title: "Сервис недоступен",
+        description: "Сервис анализа в настоящее время недоступен. Пожалуйста, повторите попытку позже.",
+        variant: "destructive"
+      });
+      console.log("Analysis not started: API health check failed");
+      return;
+    }
+    
+    // Check if user has credits
+    if (!user) {
+      toast({
+        title: "Требуется авторизация",
+        description: "Для проведения анализа необходимо войти в систему",
+        variant: "destructive"
+      });
+      console.log("Analysis not started: User not logged in");
+      navigate('/signin');
+      return;
+    }
+    
+    console.log("Checking credits for user:", user.id);
+    
+    // Check if user has enough credits
+    const hasEnoughCredits = await hasCredits(user.id);
+    console.log("Has enough credits:", hasEnoughCredits);
+    
+    if (!hasEnoughCredits) {
+      toast({
+        title: "Недостаточно кредитов",
+        description: "У вас недостаточно кредитов для проведения анализа. Пожалуйста, приобретите кредиты.",
+        variant: "destructive"
+      });
+      navigate('/purchase-credits');
       return;
     }
 
@@ -67,63 +129,42 @@ const Upload = () => {
     }, 500);
     
     try {
-      // Convert the file to a base64 string
-      const reader = new FileReader();
+      // Process the image using our API service
+      const analysisResults = await apiService.analyzeImage(file);
       
-      reader.onload = async (e) => {
-        if (e.target?.result) {
-          const imageData = e.target.result as string;
-          
-          try {
-            // Process the image using our image processor
-            const analysisResults = await processImage(imageData);
-            
-            // Save results to history
-            if (imageData && analysisResults) {
-              saveAnalysisToHistory(imageData, analysisResults, 'upload');
-            }
-            
-            setProgress(100);
-            clearInterval(progressInterval);
-            
-            setResult(analysisResults);
-            toast({
-              title: "Анализ завершен",
-              description: "Результаты анализа доступны ниже",
-            });
-          } catch (error) {
-            console.error('Error processing image:', error);
-            clearInterval(progressInterval);
-            toast({
-              title: "Ошибка анализа",
-              description: "Произошла ошибка при анализе изображения. Попробуйте еще раз.",
-              variant: "destructive"
-            });
-          } finally {
-            setAnalyzing(false);
-          }
-        }
-      };
+      // Use one credit for this analysis
+      const creditUsed = await useCredit(user.id);
+      console.log("Credit used successfully:", creditUsed);
       
-      reader.onerror = () => {
-        clearInterval(progressInterval);
-        toast({
-          title: "Ошибка чтения файла",
-          description: "Не удалось прочитать выбранный файл",
-          variant: "destructive"
-        });
-        setAnalyzing(false);
-      };
+      // Refresh subscription data once to update UI
+      // Wrap in a flag to prevent recursive calls
+      if (creditUsed) {
+        console.log("Refreshing subscription once after credit use");
+        await refreshSubscription();
+      }
       
-      reader.readAsDataURL(file);
-    } catch (error) {
+      // Save results to history
+      if (imageData && analysisResults) {
+        await saveAnalysisToHistory(imageData, analysisResults, 'upload', user.id);
+      }
+      
+      setProgress(100);
       clearInterval(progressInterval);
-      console.error('Error handling file:', error);
+      
+      setResult(analysisResults);
       toast({
-        title: "Ошибка обработки файла",
-        description: "Произошла ошибка при обработке файла",
+        title: "Анализ завершен",
+        description: "Результаты анализа доступны ниже",
+      });
+    } catch (error) {
+      console.error('Error analyzing image:', error);
+      clearInterval(progressInterval);
+      toast({
+        title: "Ошибка анализа",
+        description: "Произошла ошибка при анализе изображения. Попробуйте еще раз.",
         variant: "destructive"
       });
+    } finally {
       setAnalyzing(false);
     }
   };
@@ -139,7 +180,6 @@ const Upload = () => {
     <div className="flex flex-col min-h-screen relative">
       <NavBar />
       
-      
       <main className="flex-grow py-12 relative z-10">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <div className="max-w-3xl mx-auto">
@@ -151,6 +191,15 @@ const Upload = () => {
               <p className="text-gray-600 max-w-md mx-auto">
                 Загрузите фотографию сетчатки для анализа и диагностики потенциальных признаков диабетической ретинопатии
               </p>
+              
+              {user && userSubscription && (
+                <div className="mt-4">
+                  <span className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-blue-100 text-blue-800">
+                    <Star className="h-3.5 w-3.5 mr-1" />
+                    Доступно кредитов: {userSubscription.credits_remaining}
+                  </span>
+                </div>
+              )}
             </div>
             
             {!result && (
@@ -225,9 +274,10 @@ const Upload = () => {
                       onClick={handleAnalysis}
                       size="lg"
                       className="bg-diabetly-blue hover:bg-diabetly-darkblue transition-colors shadow-md hover:shadow-lg"
+                      disabled={!file || !apiHealth || !user || (user && userSubscription?.credits_remaining <= 0)}
                     >
                       <Eye className="mr-2 h-5 w-5" />
-                      Начать анализ
+                      Начать анализ {user && userSubscription ? `(1 кр. из ${userSubscription.credits_remaining})` : ''}
                     </Button>
                   </div>
                 )}

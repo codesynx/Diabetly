@@ -1,35 +1,22 @@
 import { useState, useEffect } from 'react';
-import { CheckCircle, AlertCircle, Heart, HeartPulse, Info, Eye, ArrowRight, BarChart, Activity, Clock, FileText, ChevronRight, Calendar, Download } from 'lucide-react';
+import { CheckCircle, AlertCircle, Heart, HeartPulse, Info, Eye, ArrowRight, BarChart, Activity, Clock, FileText, ChevronRight, Calendar } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
-import RecommendationsAccordion from './RecommendationsAccordion';
-import { generatePDF } from '@/lib/pdf-generator';
-import { useToast } from '@/components/ui/use-toast';
-
-type ResultLevel = 'low' | 'medium' | 'high';
+import { AnalysisResult as ApiAnalysisResult } from '@/lib/api-service';
 
 interface AnalysisResultProps {
   loading: boolean;
-  resultData?: {
-    riskLevel: ResultLevel;
-    riskScore: number;
-    confidence: number;
-    findings: string[];
-    recommendations: Record<string, string>;
-    nextCheckupRecommendation: string;
-  };
+  resultData?: ApiAnalysisResult;
   onReset: () => void;
   imageData?: string | null;
 }
 
 const AnalysisResult = ({ loading, resultData, onReset, imageData }: AnalysisResultProps) => {
   const [progress, setProgress] = useState(0);
-  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
-  const { toast } = useToast();
 
   useEffect(() => {
     if (loading) {
@@ -53,34 +40,6 @@ const AnalysisResult = ({ loading, resultData, onReset, imageData }: AnalysisRes
       setProgress(100);
     }
   }, [loading]);
-
-  const handleDownloadPDF = async () => {
-    if (!resultData) return;
-    
-    try {
-      setIsGeneratingPDF(true);
-      toast({
-        title: "Создание PDF",
-        description: "Подготовка документа для скачивания...",
-      });
-      
-      await generatePDF(resultData, imageData || null);
-      
-      toast({
-        title: "PDF создан",
-        description: "Документ успешно скачан",
-      });
-    } catch (error) {
-      console.error('Error generating PDF:', error);
-      toast({
-        title: "Ошибка",
-        description: "Не удалось создать PDF документ",
-        variant: "destructive"
-      });
-    } finally {
-      setIsGeneratingPDF(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -148,40 +107,42 @@ const AnalysisResult = ({ loading, resultData, onReset, imageData }: AnalysisRes
 
   if (!resultData) return null;
 
-  const { riskLevel, riskScore, confidence, findings, recommendations, nextCheckupRecommendation } = resultData;
+  const { riskLevel, highest_probability_class, severity_index, detailed_classification, clinical_information } = resultData;
 
   const getLevelColor = () => {
     switch (riskLevel) {
-      case 'low': return 'text-green-600';
-      case 'medium': return 'text-yellow-600';
-      case 'high': return 'text-red-600';
+      case 'Низкий': return 'text-green-600';
+      case 'Средний': return 'text-yellow-600';
+      case 'Высокий': return 'text-red-600';
       default: return 'text-gray-600';
     }
   };
 
   const getLevelBgColor = () => {
     switch (riskLevel) {
-      case 'low': return 'bg-green-100';
-      case 'medium': return 'bg-yellow-100';
-      case 'high': return 'bg-red-100';
+      case 'Низкий': return 'bg-green-100';
+      case 'Средний': return 'bg-yellow-100';
+      case 'Высокий': return 'bg-red-100';
       default: return 'bg-gray-100';
     }
   };
 
   const getLevelIcon = () => {
     switch (riskLevel) {
-      case 'low': return <CheckCircle className="h-6 w-6 text-green-600" />;
-      case 'medium': return <AlertCircle className="h-6 w-6 text-yellow-600" />;
-      case 'high': return <HeartPulse className="h-6 w-6 text-red-600" />;
+      case 'Низкий': return <CheckCircle className="h-6 w-6 text-green-600" />;
+      case 'Средний': return <AlertCircle className="h-6 w-6 text-yellow-600" />;
+      case 'Высокий': return <HeartPulse className="h-6 w-6 text-red-600" />;
       default: return <Heart className="h-6 w-6 text-gray-600" />;
     }
   };
 
   const getLevelText = () => {
-    switch (riskLevel) {
-      case 'low': return 'Низкая вероятность';
-      case 'medium': return 'Средняя вероятность';
-      case 'high': return 'Высокая вероятность';
+    switch (highest_probability_class) {
+      case 'Нет ДР': return 'Признаки диабетической ретинопатии не обнаружены';
+      case 'Легкая': return 'Легкая непролиферативная диабетическая ретинопатия';
+      case 'Умеренная': return 'Умеренная непролиферативная диабетическая ретинопатия';
+      case 'Тяжелая': return 'Тяжелая непролиферативная диабетическая ретинопатия';
+      case 'Пролиферативная ДР': return 'Пролиферативная диабетическая ретинопатия';
       default: return 'Неопределенный результат';
     }
   };
@@ -192,144 +153,192 @@ const AnalysisResult = ({ loading, resultData, onReset, imageData }: AnalysisRes
     year: 'numeric'
   });
 
-  // Normalize the risk score to a percentage (assuming max score is 10)
-  const riskPercentage = Math.min(Math.round((riskScore / 10) * 100), 100);
-  const progressColor = riskLevel === 'low' ? 'bg-green-500' : riskLevel === 'medium' ? 'bg-yellow-500' : 'bg-red-500';
+  // Normalize the severity index to a percentage (assuming max is 100)
+  const severityPercentage = Math.min(Math.round(severity_index), 100);
+  const progressColor = riskLevel === 'Низкий' ? 'bg-green-500' : riskLevel === 'Средний' ? 'bg-yellow-500' : 'bg-red-500';
+
+  // Format the findings from clinical information
+  const findings = clinical_information.findings
+    .split('.')
+    .map(item => item.trim())
+    .filter(item => item.length > 0);
 
   return (
     <Card className="animate-fade-in shadow-lg border-diabetly-skyblue overflow-hidden bg-white/90 backdrop-blur-sm">
-      <CardHeader className="border-b bg-gradient-to-r from-diabetly-blue/10 to-diabetly-skyblue/10">
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <Eye className="h-5 w-5 text-diabetly-blue" />
-            Результаты анализа
-          </CardTitle>
-          <Badge variant="outline" className="text-xs flex items-center gap-1 bg-white/80 backdrop-blur-sm">
-            <Clock className="h-3 w-3" /> 
-            {currentDate}
-          </Badge>
-        </div>
+      <CardHeader className={`border-b ${getLevelBgColor()} bg-gradient-to-r from-white to-transparent`}>
+        <CardTitle className="flex items-center gap-2">
+          {getLevelIcon()}
+          <span className={`${getLevelColor()}`}>{getLevelText()}</span>
+        </CardTitle>
       </CardHeader>
       
-      <CardContent className="pt-6">
-        <div className="mb-2 text-center">
-          <Badge className={`inline-flex gap-1 ${getLevelBgColor()} ${getLevelColor()} border-0 px-3 py-1`}>
-            {getLevelIcon()}
-            <span className="font-medium">{getLevelText()}</span>
-          </Badge>
-        </div>
-        
-        <div className="flex flex-col sm:flex-row items-center gap-8 mb-8">
-          <div className="w-40 h-40 relative rounded-full flex items-center justify-center border-4 border-gray-100 shadow-inner">
-            <div className="absolute inset-0 rounded-full overflow-hidden">
-              <div 
-                className={`h-full ${progressColor} transition-all duration-1000 ease-out`}
-                style={{ width: '100%', transform: `translateY(${100 - riskPercentage}%)` }}
-              ></div>
-            </div>
-            <div className="relative z-10 flex flex-col items-center">
-              <span className="text-3xl font-bold">{riskPercentage}%</span>
-              <span className="text-xs text-gray-500">Риск ретинопатии</span>
-            </div>
-          </div>
-          
-          <div className="flex-1">
-            <h3 className="text-xl font-semibold mb-3 text-diabetly-darkblue">Диагностический отчет</h3>
-            <Alert className={`${getLevelBgColor()} border-0 mb-2`}>
-              <AlertTitle className="flex items-center gap-2">
-                {getLevelIcon()}
-                <span>Диабетическая ретинопатия</span>
-              </AlertTitle>
-              <AlertDescription>
-                {findings.length > 0 && (
-                  <p className="mt-2 text-gray-700">{findings[0]}</p>
-                )}
-              </AlertDescription>
-            </Alert>
+      <CardContent className="p-0">
+        <div className="p-6">
+          <div className="flex flex-col md:flex-row gap-6">
+            {imageData && (
+              <div className="md:w-1/3">
+                <div className="aspect-[4/3] rounded-lg overflow-hidden border border-diabetly-skyblue/20 mb-4">
+                  <img 
+                    src={imageData} 
+                    alt="Снимок сетчатки глаза" 
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                
+                <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
+                  <h3 className="text-sm font-medium text-diabetly-darkblue mb-1 flex items-center gap-1.5">
+                    <Clock className="h-4 w-4 text-diabetly-blue" />
+                    Информация о снимке
+                  </h3>
+                  <div className="text-sm">
+                    <p className="flex justify-between py-1 border-b border-gray-100">
+                      <span className="text-gray-600">Дата:</span>
+                      <span className="font-medium">{currentDate}</span>
+                    </p>
+                    <p className="flex justify-between py-1 border-b border-gray-100">
+                      <span className="text-gray-600">Класс:</span>
+                      <span className="font-medium">{highest_probability_class}</span>
+                    </p>
+                    <p className="flex justify-between py-1">
+                      <span className="text-gray-600">ID анализа:</span>
+                      <span className="font-medium text-xs">{resultData.analysis_id.substring(0, 8)}</span>
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
             
-            <div className="grid grid-cols-2 gap-4 mt-4">
-              <div className="bg-white/80 backdrop-blur-sm p-3 rounded-md flex items-center gap-2 border border-diabetly-skyblue/20">
-                <Calendar className="h-4 w-4 text-diabetly-blue" />
+            <div className={`${imageData ? 'md:w-2/3' : 'w-full'}`}>
+              <div className="space-y-6">
                 <div>
-                  <p className="text-xs text-gray-500">След. осмотр</p>
-                  <p className="text-sm font-medium">{nextCheckupRecommendation}</p>
+                  <div className="flex justify-between items-center mb-3">
+                    <h3 className="text-lg font-medium text-diabetly-darkblue flex items-center gap-2">
+                      <Activity className="h-5 w-5 text-diabetly-blue" />
+                      Индекс тяжести
+                    </h3>
+                    <Badge 
+                      variant="outline" 
+                      className={`${getLevelBgColor()} ${getLevelColor()} border-none`}
+                    >
+                      {getLevelIcon()}
+                      <span className="ml-1">{severityPercentage}/100</span>
+                    </Badge>
+                  </div>
+                  
+                  <div className="bg-gray-100 w-full h-3 rounded-full overflow-hidden mb-2">
+                    <div 
+                      className={`h-full ${progressColor}`}
+                      style={{ width: `${severityPercentage}%` }}
+                    />
+                  </div>
+                  
+                  <div className="flex justify-between text-xs text-gray-500">
+                    <span>Низкий</span>
+                    <span>Средний</span>
+                    <span>Высокий</span>
+                  </div>
                 </div>
-              </div>
-              <div className="bg-white/80 backdrop-blur-sm p-3 rounded-md flex items-center gap-2 border border-diabetly-skyblue/20">
-                <Activity className="h-4 w-4 text-diabetly-blue" />
+                
+                <Separator />
+                
                 <div>
-                  <p className="text-xs text-gray-500">Точность</p>
-                  <p className="text-sm font-medium">{confidence}%</p>
+                  <h3 className="text-lg font-medium text-diabetly-darkblue flex items-center gap-2 mb-3">
+                    <InfoIcon className="h-5 w-5 text-diabetly-blue" />
+                    Детальная классификация
+                  </h3>
+                  
+                  <div className="space-y-3">
+                    {detailed_classification.map((classification, index) => (
+                      <div key={index} className="relative overflow-hidden bg-white rounded-md border border-gray-200 p-3">
+                        <div className="flex justify-between items-start">
+                          <div className="flex items-start gap-2">
+                            <span className="text-sm font-medium">{classification.class}</span>
+                          </div>
+                          <Badge variant="outline" className="bg-white">
+                            {Math.round(classification.percentage)}%
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-gray-600 mt-1">{classification.description}</p>
+                        <div 
+                          className="absolute bottom-0 left-0 h-1"
+                          style={{ 
+                            width: `${classification.percentage}%`,
+                            backgroundColor: classification.class === 'No DR' ? '#10b981' : 
+                                            classification.class === 'Mild' || classification.class === 'Moderate' ? '#f59e0b' : 
+                                            '#ef4444'
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        <Separator className="my-6" />
-
-        <div className="mb-8">
-          <h4 className="text-lg font-semibold mb-4 flex items-center gap-2 text-diabetly-darkblue">
-            <InfoIcon className="h-5 w-5 text-diabetly-blue" />
-            Выявленные признаки:
-          </h4>
-          <div className="space-y-2 mb-6">
-            {findings.map((finding, index) => (
-              <div key={index} className="p-3 border border-diabetly-skyblue/20 bg-white/80 backdrop-blur-sm rounded-lg">
-                <div className="flex items-start gap-3">
-                  <div className="mt-1 flex-shrink-0">
-                    <div className="w-5 h-5 rounded-full bg-diabetly-blue/10 flex items-center justify-center">
-                      <ChevronRight className="h-3 w-3 text-diabetly-blue" />
+                
+                <Separator />
+                
+                <div>
+                  <h3 className="text-lg font-medium text-diabetly-darkblue flex items-center gap-2 mb-3">
+                    <Eye className="h-5 w-5 text-diabetly-blue" />
+                    Результаты анализа
+                  </h3>
+                  
+                  <div className="bg-white rounded-md border border-gray-200 p-4 mb-4">
+                    <h4 className="font-medium text-diabetly-darkblue mb-2">Обнаруженные признаки:</h4>
+                    <ul className="space-y-1 mb-4">
+                      {findings.map((finding, index) => (
+                        <li key={index} className="flex items-start gap-2">
+                          <ArrowRight className="h-4 w-4 text-diabetly-blue mt-0.5 flex-shrink-0" />
+                          <span className="text-sm text-gray-700">{finding}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    
+                    <h4 className="font-medium text-diabetly-darkblue mb-2">Рекомендации:</h4>
+                    <p className="text-sm text-gray-700 whitespace-pre-line">{clinical_information.recommendations}</p>
+                    
+                    <Separator className="my-3" />
+                    
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Calendar className="h-4 w-4 text-diabetly-blue" />
+                        <span className="text-sm text-gray-700">Следующий осмотр:</span>
+                      </div>
+                      <span className="text-sm font-medium">{clinical_information.follow_up}</span>
                     </div>
                   </div>
-                  <p className="text-gray-700 text-sm">{finding}</p>
+                  
+                  <Alert className="bg-diabetly-blue/5 border-diabetly-blue/20 mb-4">
+                    <AlertTitle className="flex items-center gap-1.5">
+                      <AlertCircle className="h-4 w-4 text-diabetly-blue" />
+                      Объяснение
+                    </AlertTitle>
+                    <AlertDescription className="text-sm text-gray-700 mt-1">
+                      {resultData.ai_explanation}
+                    </AlertDescription>
+                  </Alert>
                 </div>
               </div>
-            ))}
-          </div>
-
-          <h4 className="text-lg font-semibold mb-4 flex items-center gap-2 text-diabetly-darkblue">
-            <CheckCircle className="h-5 w-5 text-green-600" />
-            Рекомендации:
-          </h4>
-          <div className="bg-white/80 backdrop-blur-sm p-4 border border-diabetly-skyblue/20 rounded-lg">
-            <RecommendationsAccordion recommendations={recommendations} />
+            </div>
           </div>
         </div>
-        
-        <CardFooter className="flex flex-col sm:flex-row gap-4 pt-6 border-t">
-          <Button 
-            variant="outline" 
-            className="w-full sm:w-auto" 
-            onClick={onReset}
-          >
-            Новый анализ
-          </Button>
-          
-          <Button 
-            className="w-full sm:w-auto bg-diabetly-blue hover:bg-diabetly-darkblue transition-colors"
-            onClick={handleDownloadPDF}
-            disabled={isGeneratingPDF}
-          >
-            <Download className="mr-2 h-4 w-4" />
-            {isGeneratingPDF ? 'Создание PDF...' : 'Скачать PDF отчет'}
-          </Button>
-        </CardFooter>
       </CardContent>
-
-      <CardFooter className="bg-gradient-to-r from-diabetly-blue/5 to-diabetly-skyblue/5 border-t border-diabetly-skyblue/10 py-3 px-6">
-        <div className="w-full flex justify-between items-center">
-          <p className="text-xs text-gray-500">Результаты анализа не заменяют консультацию врача</p>
-          <Badge variant="secondary" className="bg-white/50">
-            <span className="text-xs text-diabetly-darkblue">Diabetly AI</span>
-          </Badge>
+      
+      <CardFooter className="p-6 flex flex-wrap gap-3 justify-between items-center border-t bg-white">
+        <Button 
+          variant="outline" 
+          onClick={onReset}
+        >
+          Сделать новый анализ
+        </Button>
+        
+        <div className="text-sm text-gray-500">
+          <span className="font-medium">Примечание:</span> Результаты анализа не являются медицинским диагнозом. Пожалуйста, проконсультируйтесь с врачом.
         </div>
       </CardFooter>
     </Card>
   );
 };
 
-// Need to add missing Icon
+// Info Icon Component
 const InfoIcon = (props: React.SVGProps<SVGSVGElement>) => (
   <svg
     {...props}

@@ -1,33 +1,56 @@
 import { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import NavBar from '@/components/NavBar';
 import Footer from '@/components/Footer';
 import { Button } from '@/components/ui/button';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, Loader2 } from 'lucide-react';
+import { Camera, Loader2, Star } from 'lucide-react';
 import AnalysisResult from '@/components/AnalysisResult';
 import { useToast } from '@/components/ui/use-toast';
-import { processImage } from '../../image-processor';
+import { apiService, AnalysisResult as ApiAnalysisResult } from '@/lib/api-service';
 import { saveAnalysisToHistory } from '@/lib/storage-service';
-
-type ResultLevel = 'low' | 'medium' | 'high';
-
-interface AnalysisResultData {
-  riskLevel: ResultLevel;
-  riskScore: number;
-  confidence: number;
-  findings: string[];
-  recommendations: Record<string, string>;
-  nextCheckupRecommendation: string;
-}
+import { useAuth } from '@/lib/auth-context';
+import { hasCredits, useCredit } from '@/lib/user-credits-service';
 
 const Scan = () => {
   const [scanningStage, setScanningStage] = useState<'initial' | 'scanning' | 'processing' | 'result'>('initial');
   const [scanProgress, setScanProgress] = useState(0);
-  const [result, setResult] = useState<AnalysisResultData | null>(null);
+  const [result, setResult] = useState<ApiAnalysisResult | null>(null);
   const [capturedImageUrl, setCapturedImageUrl] = useState<string | null>(null);
+  const [apiHealth, setApiHealth] = useState<boolean>(true);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { toast } = useToast();
+  const { user, userSubscription, refreshSubscription } = useAuth();
+  const navigate = useNavigate();
+  
+  // Check API health on component mount
+  useEffect(() => {
+    checkApiHealth();
+  }, []);
+
+  // Function to check API health
+  const checkApiHealth = async () => {
+    try {
+      const healthData = await apiService.checkHealth();
+      setApiHealth(healthData.status === 'healthy');
+      
+      if (healthData.status !== 'healthy') {
+        toast({
+          title: "Предупреждение",
+          description: "Сервис анализа в настоящее время недоступен. Пожалуйста, повторите попытку позже.",
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      setApiHealth(false);
+      toast({
+        title: "Ошибка соединения",
+        description: "Не удалось подключиться к сервису анализа. Проверьте ваше интернет-соединение.",
+        variant: "destructive"
+      });
+    }
+  };
   
   // Request camera permission and setup video stream
   useEffect(() => {
@@ -65,6 +88,39 @@ const Scan = () => {
   }, [scanningStage, toast]);
   
   const handleCapture = async () => {
+    // Check if API is healthy before proceeding
+    if (!apiHealth) {
+      toast({
+        title: "Сервис недоступен",
+        description: "Сервис анализа в настоящее время недоступен. Пожалуйста, повторите попытку позже.",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    // Check if user has credits
+    if (!user) {
+      toast({
+        title: "Требуется авторизация",
+        description: "Для проведения анализа необходимо войти в систему",
+        variant: "destructive"
+      });
+      navigate('/signin');
+      return;
+    }
+    
+    // Check if user has enough credits
+    const hasEnoughCredits = await hasCredits(user.id);
+    if (!hasEnoughCredits) {
+      toast({
+        title: "Недостаточно кредитов",
+        description: "У вас недостаточно кредитов для проведения анализа. Пожалуйста, приобретите кредиты.",
+        variant: "destructive"
+      });
+      navigate('/purchase-credits');
+      return;
+    }
+    
     // Capture the current frame from video
     if (videoRef.current && canvasRef.current) {
       const video = videoRef.current;
@@ -94,7 +150,7 @@ const Scan = () => {
           clearInterval(interval);
           setScanningStage('processing');
           
-          // Process the image with our image processor if we have a captured image
+          // Process the image with our API service if we have a captured image
           if (capturedImageUrl) {
             processAndAnalyzeImage(capturedImageUrl);
           } else {
@@ -117,12 +173,20 @@ const Scan = () => {
   // Function to process and analyze the captured image
   const processAndAnalyzeImage = async (imageData: string) => {
     try {
-      // Call our image processor
-      const analysisResults = await processImage(imageData);
+      // Call our API service to analyze the image
+      const analysisResults = await apiService.analyzeImageBase64(imageData);
+      
+      // Use one credit for this analysis
+      if (user) {
+        await useCredit(user.id);
+        
+        // Refresh subscription data to update UI
+        await refreshSubscription();
+      }
       
       // Save results to history
       if (imageData && analysisResults) {
-        saveAnalysisToHistory(imageData, analysisResults, 'scan');
+        await saveAnalysisToHistory(imageData, analysisResults, 'scan', user?.id);
       }
       
       setResult(analysisResults);
@@ -168,9 +232,19 @@ const Scan = () => {
               </div>
               
               <div className="absolute bottom-0 left-0 right-0 bg-white/90 backdrop-blur-md p-4 text-center z-20">
-                <p className="text-diabetly-darkblue text-lg font-medium mb-4">
+                <p className="text-diabetly-darkblue text-lg font-medium mb-2">
                   Поместите глаза в рамку
                 </p>
+                
+                {user && userSubscription && (
+                  <p className="text-sm mb-3">
+                    <span className="inline-flex items-center px-2 py-1 rounded-full bg-blue-100 text-blue-800">
+                      <Star className="h-3 w-3 mr-1" />
+                      Доступно кредитов: {userSubscription.credits_remaining}
+                    </span>
+                  </p>
+                )}
+                
                 <motion.div
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
