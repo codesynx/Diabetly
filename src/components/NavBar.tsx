@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Eye, History, MessageCircle, Star, User, LogIn } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import ApiStatus from './ApiStatus';
 import { useAuth } from '@/lib/auth-context';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
@@ -43,7 +42,8 @@ const NavBar = () => {
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         {user ? (
           // Authenticated user layout
-          <div className="flex items-center justify-between">
+          <div className="grid grid-cols-3 items-center">
+            {/* Logo on the left */}
             <div className="flex items-center">
               <Link to="/index" className="flex items-center">
                 <img 
@@ -55,29 +55,28 @@ const NavBar = () => {
               </Link>
             </div>
 
-            {/* Desktop Menu for authenticated users */}
-            <div className="hidden md:flex items-center space-x-6">
-              <Link to="/index" className="text-gray-700 hover:text-diabetly-blue transition-colors">
+            {/* Desktop Menu for authenticated users - centered */}
+            <div className="hidden md:flex justify-center items-center space-x-4 lg:space-x-6">
+              <Link to="/index" className="text-gray-700 hover:text-diabetly-blue transition-colors whitespace-nowrap">
                 Главная
               </Link>
-              <Link to="/choose-method" className="text-gray-700 hover:text-diabetly-blue transition-colors">
+              <Link to="/choose-method" className="text-gray-700 hover:text-diabetly-blue transition-colors whitespace-nowrap">
                 Анализ
               </Link>
-              <Link to="/history" className="text-gray-700 hover:text-diabetly-blue transition-colors">
+              <Link to="/history" className="text-gray-700 hover:text-diabetly-blue transition-colors whitespace-nowrap">
                 История
               </Link>
-              <Link to="/chat" className="text-gray-700 hover:text-diabetly-blue transition-colors">
+              <Link to="/chat" className="text-gray-700 hover:text-diabetly-blue transition-colors whitespace-nowrap">
                 AI-консультация
               </Link>
-              <Link to="/info" className="text-gray-700 hover:text-diabetly-blue transition-colors">
+              <Link to="/info" className="text-gray-700 hover:text-diabetly-blue transition-colors whitespace-nowrap">
                 Информация
               </Link>
+            </div>
               
-              {/* API Status Indicator */}
-              <ApiStatus className="cursor-pointer" />
-              
-              {/* User account section */}
-              <div className="flex items-center gap-3">
+            {/* User account section - aligned right */}
+            <div className="flex justify-end items-center">
+              <div className="hidden md:flex items-center gap-3">
                 {/* Credits display */}
                 {userSubscription && (
                   <Link to="/account">
@@ -128,23 +127,23 @@ const NavBar = () => {
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
-            </div>
 
-            {/* Mobile menu button */}
-            <div className="md:hidden">
-              <button
-                type="button"
-                className="text-gray-500 hover:text-gray-700 focus:outline-none"
-                onClick={() => setIsMenuOpen(!isMenuOpen)}
-              >
-                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  {isMenuOpen ? (
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  ) : (
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                  )}
-                </svg>
-              </button>
+              {/* Mobile menu button */}
+              <div className="md:hidden">
+                <button
+                  type="button"
+                  className="text-gray-500 hover:text-gray-700 focus:outline-none"
+                  onClick={() => setIsMenuOpen(!isMenuOpen)}
+                >
+                  <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    {isMenuOpen ? (
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    ) : (
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                    )}
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
         ) : (
@@ -163,14 +162,14 @@ const NavBar = () => {
             </div>
             
             {/* Centered navigation links - only visible on desktop */}
-            <div className="hidden md:flex justify-center items-center space-x-12">
-              <Link to="/" className="text-diabetly-blue hover:text-diabetly-darkblue transition-colors font-medium">
+            <div className="hidden md:flex justify-center items-center space-x-8 lg:space-x-12">
+              <Link to="/" className="text-diabetly-blue hover:text-diabetly-darkblue transition-colors font-medium whitespace-nowrap">
                 Главная
               </Link>
-              <Link to="/info" className="text-diabetly-blue hover:text-diabetly-darkblue transition-colors font-medium">
+              <Link to="/info" className="text-diabetly-blue hover:text-diabetly-darkblue transition-colors font-medium whitespace-nowrap">
                 Информация
               </Link>
-              <Link to="/pricing" className="text-diabetly-blue hover:text-diabetly-darkblue transition-colors font-medium">
+              <Link to="/pricing" className="text-diabetly-blue hover:text-diabetly-darkblue transition-colors font-medium whitespace-nowrap">
                 Цены
               </Link>
             </div>
@@ -179,7 +178,6 @@ const NavBar = () => {
             <div className="flex justify-end">
               {/* For desktop */}
               <div className="hidden md:flex items-center gap-3">
-                <ApiStatus className="cursor-pointer mr-3" />
                 <Button variant="outline" asChild>
                   <Link to="/signin">
                     <LogIn className="mr-2 h-4 w-4" /> Войти
@@ -255,11 +253,6 @@ const NavBar = () => {
                 >
                   Информация
                 </Link>
-                
-                {/* API Status Indicator for mobile */}
-                <div className="block px-3 py-2">
-                  <ApiStatus className="cursor-pointer" />
-                </div>
               </>
             ) : (
               /* Unauthenticated user: centered menu */
@@ -285,11 +278,6 @@ const NavBar = () => {
                 >
                   Цены
                 </Link>
-                
-                {/* API Status Indicator for mobile */}
-                <div className="block py-2">
-                  <ApiStatus className="cursor-pointer" />
-                </div>
               </div>
             )}
             
